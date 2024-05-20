@@ -4,7 +4,6 @@ import pickle
 import uuid
 import os
 
-
 def get_face_encodings_from_video(video_path, sample_rate=30):
     face_encodings = []
     video_capture = cv2.VideoCapture(video_path)
@@ -34,7 +33,6 @@ def find_matching_videos(directory, face_encodings, tolerance=0.6):
                     matches.append(video_path)
                     break
     return matches
-
 
 def generate_encodings_random_file(dataset_paths, names, number_images=10, image_type='.jpg', model_method='cnn'):
     knownEncodings = []

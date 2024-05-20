@@ -1,7 +1,7 @@
 from django.urls import path
-from .views import home, upload_video
+from . import views
 
 urlpatterns = [
-    path('', home, name='home'),  # 기본 경로에 홈 뷰 연결
-    path('upload/', upload_video, name='upload_video'),
+    path('upload/', views.upload_video, name='upload_video'),
+    path('api/videos/', views.get_uploaded_videos, name='get_uploaded_videos'),
 ]
