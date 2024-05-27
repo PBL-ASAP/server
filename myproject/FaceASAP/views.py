@@ -1,46 +1,50 @@
-# views.py
 from django.shortcuts import render
 from django.http import JsonResponse
 import os
 import face_recognition
-import cv2
 import pickle
 import uuid
 from .models import FaceEncoding
-from .forms import UploadFileForm
 
 def home(request):
     return render(request, 'index.html')
 
 def upload_face_data(request):
     if request.method == 'POST':
-        form = UploadFileForm(request.POST, request.FILES)
-        if form.is_valid():
-            images = request.FILES.getlist('files')
-            known_encodings = []
-            for image in images:
-                img = face_recognition.load_image_file(image)
-                encodings = face_recognition.face_encodings(img)
-                if encodings:
-                    known_encodings.append(encodings[0])
+        images = request.FILES.getlist('images')
+        known_encodings = []
+        for image in images:
+            img = face_recognition.load_image_file(image)
+            encodings = face_recognition.face_encodings(img)
+            if encodings:
+                known_encodings.append(encodings[0])
 
+        if known_encodings:
             face_key = f'encodings_{uuid.uuid4().hex}.pickle'
             data = {"encodings": known_encodings}
-            with open(os.path.join('media', face_key), 'wb') as f:
-                f.write(pickle.dumps(data))
+            encodings_dir = os.path.join('media', 'encodings')
+            os.makedirs(encodings_dir, exist_ok=True)
+            encoding_file_path = os.path.join(encodings_dir, face_key)
+            try:
+                with open(encoding_file_path, 'wb') as f:
+                    f.write(pickle.dumps(data))
 
-            # 데이터베이스에 키와 파일 경로를 저장합니다.
-            FaceEncoding.objects.create(face_key=face_key, file_path=os.path.join('media', face_key))
-
-            return JsonResponse({'status': 'success', 'face_key': face_key})
+                FaceEncoding.objects.create(face_key=face_key, file_path=encoding_file_path)
+                return JsonResponse({'status': 'success', 'face_key': face_key})
+            except Exception as e:
+                return JsonResponse({'status': 'error', 'message': str(e)})
+        else:
+            return JsonResponse({'status': 'error', 'message': 'No face encodings found'})
     return JsonResponse({'status': 'error', 'message': 'Invalid request method'})
 
 def upload_video_data(request):
     if request.method == 'POST':
         video_files = request.FILES.getlist('videos')
         video_paths = []
+        videos_dir = os.path.join('media', 'videos')
+        os.makedirs(videos_dir, exist_ok=True)
         for video_file in video_files:
-            video_path = os.path.join('media', video_file.name)
+            video_path = os.path.join(videos_dir, video_file.name)
             with open(video_path, 'wb+') as destination:
                 for chunk in video_file.chunks():
                     destination.write(chunk)
@@ -49,7 +53,9 @@ def upload_video_data(request):
     return JsonResponse({'status': 'error', 'message': 'Invalid request method'})
 
 def get_uploaded_videos(request):
-    media_dir = 'media/'
+    media_dir = os.path.join('media', 'videos')
+    if not os.path.exists(media_dir):
+        os.makedirs(media_dir)
     video_files = [os.path.join(media_dir, file) for file in os.listdir(media_dir) if file.endswith('.mp4')]
     return JsonResponse({'status': 'success', 'videos': video_files})
 
@@ -59,16 +65,17 @@ def search_videos(request):
         if not face_key:
             return JsonResponse({'status': 'error', 'message': 'No face key provided'})
 
-        with open(os.path.join('media', face_key), 'rb') as f:
+        encoding_file_path = os.path.join('media', 'encodings', face_key)
+        with open(encoding_file_path, 'rb') as f:
             data = pickle.loads(f.read())
         
         known_encodings = data['encodings']
         tolerance = 0.6
         matched_videos = []
 
-        for video_file in os.listdir('media/'):
+        for video_file in os.listdir('media/videos/'):
             if video_file.endswith('.mp4'):
-                video_path = os.path.join('media', video_file)
+                video_path = os.path.join('media', 'videos', video_file)
                 video_capture = cv2.VideoCapture(video_path)
                 frame_count = 0
                 while True:
