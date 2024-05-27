@@ -1,10 +1,15 @@
+import json
 from django.shortcuts import render
 from django.http import JsonResponse
 import os
 import face_recognition
+import cv2
 import pickle
 import uuid
 from .models import FaceEncoding
+import logging
+
+logger = logging.getLogger(__name__)
 
 def home(request):
     return render(request, 'index.html')
@@ -61,36 +66,56 @@ def get_uploaded_videos(request):
 
 def search_videos(request):
     if request.method == 'POST':
-        face_key = request.POST.get('face_key')
-        if not face_key:
-            return JsonResponse({'status': 'error', 'message': 'No face key provided'})
+        try:
+            import time
+            start_time = time.time()
+            
+            body = json.loads(request.body)
+            face_key = body.get('face_key')
+            logger.debug(f"Received face key: {face_key}")
+            if not face_key:
+                return JsonResponse({'status': 'error', 'message': 'No face key provided'})
 
-        encoding_file_path = os.path.join('media', 'encodings', face_key)
-        with open(encoding_file_path, 'rb') as f:
-            data = pickle.loads(f.read())
-        
-        known_encodings = data['encodings']
-        tolerance = 0.6
-        matched_videos = []
+            encoding_file_path = os.path.join('media', 'encodings', face_key)
+            if not os.path.exists(encoding_file_path):
+                logger.debug(f"Face key file not found: {encoding_file_path}")
+                return JsonResponse({'status': 'error', 'message': 'Face key not found'})
 
-        for video_file in os.listdir('media/videos/'):
-            if video_file.endswith('.mp4'):
-                video_path = os.path.join('media', 'videos', video_file)
-                video_capture = cv2.VideoCapture(video_path)
-                frame_count = 0
-                while True:
-                    ret, frame = video_capture.read()
-                    if not ret:
-                        break
-                    if frame_count % 30 == 0:
-                        face_locations = face_recognition.face_locations(frame)
-                        face_encodings = face_recognition.face_encodings(frame, face_locations)
-                        for face_encoding in face_encodings:
-                            matches = face_recognition.compare_faces(known_encodings, face_encoding, tolerance)
-                            if True in matches:
-                                matched_videos.append(video_file)
-                                break
-                    frame_count += 1
-                video_capture.release()
-        return JsonResponse({'status': 'success', 'matched_videos': matched_videos})
+            with open(encoding_file_path, 'rb') as f:
+                data = pickle.loads(f.read())
+
+            known_encodings = data['encodings']
+            tolerance = 0.6
+            matched_videos = []
+
+            for video_file in os.listdir('media/videos/'):
+                if video_file.endswith('.mp4'):
+                    video_path = os.path.join('media', 'videos', video_file)
+                    video_capture = cv2.VideoCapture(video_path)
+                    frame_count = 0
+                    matched = False
+                    while True:
+                        ret, frame = video_capture.read()
+                        if not ret:
+                            break
+                        if frame_count % 5 == 0:
+                            face_locations = face_recognition.face_locations(frame)
+                            face_encodings = face_recognition.face_encodings(frame, face_locations)
+                            for face_encoding in face_encodings:
+                                matches = face_recognition.compare_faces(known_encodings, face_encoding, tolerance)
+                                if True in matches:
+                                    matched_videos.append(video_file)
+                                    matched = True
+                                    logger.debug(f"Match found in video: {video_file}")
+                                    break
+                        if matched:
+                            break
+                        frame_count += 1
+                    video_capture.release()
+
+            logger.debug(f"Search completed in {time.time() - start_time} seconds")
+            return JsonResponse({'status': 'success', 'matched_videos': matched_videos})
+        except Exception as e:
+            logger.error(f"Search error: {e}")
+            return JsonResponse({'status': 'error', 'message': str(e)})
     return JsonResponse({'status': 'error', 'message': 'Invalid request method'})
